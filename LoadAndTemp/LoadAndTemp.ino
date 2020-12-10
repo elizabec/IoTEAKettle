@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <OneWire.h>
 #include <Notes.h>
+#include <WiFiNINA.h> //library to enable use of WiFi
 
 #define addFX29 0x28
 #define MAXLEN 10
@@ -14,17 +15,51 @@ byte pos = 0;
 int ledGreen = 3;
 int ledYellow = 4;
 int buzzer = 8;
+int choice = 0;
 
-int FFvictory[] = {
+// Defining the song to play should probably be done with an array of pointers, 
+// to make it possible to make the choice from the web page
+//#define VICTORY
+//#define SONGOFTIME
+//#define MARIO
+
+#if defined(VICTORY) 
+int tempo = 115;
+int tune[] = {
   C5, 12, C5, 12, C5, 12, C5, 4, GS4, 4, AS4, 4, C5, 12, REST, 12, AS4, 12, C5, -2
 
 };
-int songOfTime[] = {
+#elif defined(SONGOFTIME)
+int tempo = 108;
+int tune[] = {
 
-  A5, 4, D4, 2, F4, 4, A4, 4, D4, 2,
-  F4, 4, A5, 8, C5, 8, NOTE_B5, 4, G4, 4, F4, 8, G4, 8, A5, 4,
-  D4, 4, C4, 8, E4, 4, D4, -1
+  A4, 4, D4, 2, F4, 4, A4, 4, D4, 2,
+  F4, 4, A4, 8, C4, 8, NOTE_B4, 4, G4, 4, F4, 8, G4, 8, A4, 4,
+  D4, 4, C4, 8, E4, 8, D4, -1
 };
+#elif defined(MARIO)
+int tempo = 200;
+int tune[] = {E5,8, E5,8, REST,8, E5,8, REST,8, C5,8, E5,4, //1
+  G5,4, REST,4, G4,8, REST,4, 
+  C5,-4, G4,8, REST,4, E4,-4, // 3
+  A4,4, NOTE_B4,4, AS4,8, A4,4,
+  G4,-8, E5,-8, G5,-8, A5,4, F5,8, G5,8,
+  REST,8, E5,4,C5,8, D5,8, NOTE_B4,-4
+};
+#else //This was very important to implement, trust me
+int tempo = 115;
+int tune[] = {D5, 2, E5, 8, FS5, 8, D5, 8, E5, 8, E5, 8, E5, 8, FS5, 8, E5, 4, A4, 4,
+  REST, 2, NOTE_B4, 8, CS5, 8, D5, 8, NOTE_B4, 8, REST, 8, E5, 8, FS5, 8, E5, -4, 
+  
+  A4, 16, NOTE_B4, 16, D5, 16, NOTE_B4, 16, FS5, -8, FS5, -8, E5, -4, 
+  A4, 16, NOTE_B4, 16, D5, 16, NOTE_B4, 16, E5, -8, E5, -8, D5, -8, CS5, 16, NOTE_B4, -8, 
+  A4, 16, NOTE_B4, 16, D5, 16, NOTE_B4, 16, D5, 4, E5, 8, CS5, -8, NOTE_B4, 16, A4 ,8, A4, 8, A4, 8, 
+  E5, 4, D5, 2, A4, 16, NOTE_B4, 16, D5, 16, NOTE_B4, 16,
+  FS5, -8, FS5, -8, E5, -4, A4, 16, NOTE_B4, 16, D5, 16, NOTE_B4, 16,
+  A5, 4, CS5, 8, D5, -8, CS5, 16, NOTE_B4, 8, A4, 16, NOTE_B4, 16, D5, 16, NOTE_B4, 16,
+  D5, 4, E5, 8, CS5, -8, NOTE_B4, 16, A4, 4, A4, 8, E5, 4, D5, 2
+};
+#endif
 
 float readTemp() {
   byte data[9];
@@ -69,28 +104,25 @@ void loop() {
   Wire.requestFrom(addFX29, nBytes);
 
   int cnt = 0;
-  while (Wire.available())
-  {
+  while (Wire.available()){
     bytesRead[cnt] = Wire.read();
     cnt++;
   }
 
   float Pdisplay, Lmax = 100, Lmin = 0;
   uint32_t Pvalue, Pspan, I2C_ERR;
-  uint16_t P1 = 100, P2 = 4500; //lowest value 100g, highest 4.5kg (adjusted from lb, so not 100% accurate)
+  uint16_t P1 = 1300, P2 = 7000;
 
-  if ((bytesRead[0] & 0xC0) == 0x00)
-  {
+  if ((bytesRead[0] & 0xC0) == 0x00){
     Pvalue = (bytesRead[0] << 8) | bytesRead[1];
     I2C_ERR = 0; //All is well
   }
   else
-    I2C_ERR = 1;//All is not well
+    I2C_ERR = 1; //All is not well
 
-  if (I2C_ERR == 0)
-  {
+  if (I2C_ERR == 0){
     Pspan = P2 - P1; //Span of values
-    Pdisplay = (Pvalue - 1000) * (Lmax - Lmin) / Pspan; //Percentage
+    Pdisplay = (Pvalue - 1300) * 100 / Pspan; //Percentage
 
     if (Pdisplay >= 0 && Pdisplay <= 100) {
       values[pos] = Pdisplay;
@@ -105,7 +137,7 @@ void loop() {
   temp = readTemp();
   if (temp >= setTemp) {
     digitalWrite(ledGreen, HIGH);
-    playTune(buzzer, 108);
+    playTune();
   }
   else {
     digitalWrite(ledGreen, LOW);
@@ -125,7 +157,7 @@ void loop() {
   Serial.print(Pvalue);
   Serial.print("  Average = ");
   Serial.println(pAvg());
-  //playTune(buzzer, 108);
+  playTune();
 }
 
 float pAvg() {
@@ -136,14 +168,14 @@ float pAvg() {
   return sum / MAXLEN;
 }
 
-void playTune(int pin, int tempo) {
+void playTune() {
   
-  int notes = sizeof(FFvictory) / sizeof(FFvictory[0]) / 2;
+  int notes = sizeof(tune) / sizeof(tune[0]) / 2;
   int wholenote = (60000 * 4) / tempo; //Whole note in ms
   int divider = 0, noteDuration = 0;
 
   for (int thisNote = 0; thisNote < notes * 2; thisNote = thisNote + 2) {
-    divider = FFvictory[thisNote + 1]; //Calculates the duration of each note
+    divider = tune[thisNote + 1]; //Calculates the duration of each note
     if (divider > 0) { //Regular note
       noteDuration = (wholenote) / divider;
     }
@@ -151,9 +183,9 @@ void playTune(int pin, int tempo) {
       noteDuration = (wholenote) / abs(divider);
       noteDuration *= 1.5; //Dotted note = 1.5 time duration
     }
-    tone(pin, FFvictory[thisNote], noteDuration * 0.9); //Only play 90% of note to distinguish notes better
+    tone(buzzer, tune[thisNote], noteDuration * 0.9); //Only play 90% of note to distinguish notes better
     delay(noteDuration);
-    noTone(pin);
+    noTone(buzzer);
   }
   delay(800); //Delay for 800ms to correspond with sensor readings
 }
