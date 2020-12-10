@@ -1,12 +1,11 @@
 #include <Wire.h>
-#include <OneWire.h> // library download
-#include <TempSensor.h> // custom header!
+#include <OneWire.h>
 #include <Notes.h>
 
-#define ONE_WIRE_BUS 2
 #define addFX29 0x28
 #define MAXLEN 10
-OneWire oneWire(ONE_WIRE_BUS);
+#define TEMP_ERROR 999.999
+OneWire tempSensor(2); //Sensor pin = 2
 
 float values[10]   = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 float temp = 0;
@@ -14,12 +13,9 @@ float setTemp = 60;
 byte pos = 0;
 int ledGreen = 3;
 int ledYellow = 4;
-int ledWhite = 5;
 int buzzer = 8;
 
-DallasTemperature sensors(&oneWire);
-
-int victory[] = {
+int FFvictory[] = {
   C5, 12, C5, 12, C5, 12, C5, 4, GS4, 4, AS4, 4, C5, 12, REST, 12, AS4, 12, C5, -2
 
 };
@@ -30,13 +26,36 @@ int songOfTime[] = {
   D4, 4, C4, 8, E4, 4, D4, -1
 };
 
+float readTemp() {
+  byte data[9];
+  int temperature;
+  float tempC;
+
+  tempSensor.reset();
+  tempSensor.write(0xCC);  //Alerts all devices to pay attention
+  tempSensor.write(0x44);  //Start a temperature reading
+ 
+  delay(800); //A temperature reading takes 750ms
+ 
+  tempSensor.reset();
+  tempSensor.write(0xCC); 
+  tempSensor.write(0xBE); //Send content of scratchpad
+
+  for (int i = 0; i < 9; i++) {
+    data[i] = tempSensor.read();
+  }
+
+  temperature = (data[1] << 8) + data[0]; //Two byte binary temperature
+  tempC = temperature / 16.0;
+
+  return tempC;
+}
+
 void setup() {
   Wire.begin();
   Serial.begin(9600);
-  sensors.begin();
   pinMode(ledGreen, OUTPUT);
   pinMode(ledYellow, OUTPUT);
-  pinMode(ledWhite, OUTPUT);
 }
 
 void loop() {
@@ -58,33 +77,32 @@ void loop() {
 
   float Pdisplay, Lmax = 100, Lmin = 0;
   uint32_t Pvalue, Pspan, I2C_ERR;
-  uint16_t P1 = 1000, P2 = 10000;
+  uint16_t P1 = 100, P2 = 4500; //lowest value 100g, highest 4.5kg (adjusted from lb, so not 100% accurate)
 
-  if ((bytesRead[0] & 0xc0) == 0x00)
+  if ((bytesRead[0] & 0xC0) == 0x00)
   {
-    Pvalue = (bytesRead[0] << 8)   |   bytesRead[1];
-    I2C_ERR = 0;
+    Pvalue = (bytesRead[0] << 8) | bytesRead[1];
+    I2C_ERR = 0; //All is well
   }
   else
-    I2C_ERR = 1;
+    I2C_ERR = 1;//All is not well
 
   if (I2C_ERR == 0)
   {
-    Pspan = P2 - P1;
-    Pdisplay = (Pvalue - 1000) * (Lmax - Lmin) / Pspan;
+    Pspan = P2 - P1; //Span of values
+    Pdisplay = (Pvalue - 1000) * (Lmax - Lmin) / Pspan; //Percentage
 
     if (Pdisplay >= 0 && Pdisplay <= 100) {
       values[pos] = Pdisplay;
       pos++;
-      if (pos == MAXLEN) {
+      if (pos == MAXLEN) { //Running array of values
         pos = 0;
       }
     }
   }
   Wire.endTransmission();
 
-  sensors.requestTemperatures(); // Send the command to get temperatures
-  temp = sensors.getTempCByIndex(0);
+  temp = readTemp();
   if (temp >= setTemp) {
     digitalWrite(ledGreen, HIGH);
     playTune(buzzer, 108);
@@ -93,7 +111,7 @@ void loop() {
     digitalWrite(ledGreen, LOW);
     noTone(buzzer);
   }
-  if (Pdisplay >= 4) {
+  if (Pvalue >= 1350) {
     digitalWrite(ledYellow, HIGH);
   }
   else {
@@ -101,15 +119,13 @@ void loop() {
   }
   Serial.print("Temperature =  ");
   Serial.print(temp, 1);
-  Serial.print("C");
   Serial.print("  Pdisplay = ");
   Serial.print(Pdisplay);
   Serial.print("  Pvalue = ");
   Serial.print(Pvalue);
   Serial.print("  Average = ");
   Serial.println(pAvg());
-  digitalWrite(5, HIGH);
-  delay(200);
+  //playTune(buzzer, 108);
 }
 
 float pAvg() {
@@ -121,35 +137,23 @@ float pAvg() {
 }
 
 void playTune(int pin, int tempo) {
-  int notes = sizeof(victory) / sizeof(victory[0]) / 2;
-
-  // this calculates the duration of a whole note in ms
-  int wholenote = (60000 * 4) / tempo;
-
+  
+  int notes = sizeof(FFvictory) / sizeof(FFvictory[0]) / 2;
+  int wholenote = (60000 * 4) / tempo; //Whole note in ms
   int divider = 0, noteDuration = 0;
-  // iterate over the notes of the melody.
-  // Remember, the array is twice the number of notes (notes + durations)
-  for (int thisNote = 0; thisNote < notes * 2; thisNote = thisNote + 2) {
 
-    // calculates the duration of each note
-    divider = victory[thisNote + 1];
-    if (divider > 0) {
-      // regular note, just proceed
+  for (int thisNote = 0; thisNote < notes * 2; thisNote = thisNote + 2) {
+    divider = FFvictory[thisNote + 1]; //Calculates the duration of each note
+    if (divider > 0) { //Regular note
       noteDuration = (wholenote) / divider;
     }
-    else if (divider < 0) {
-      // dotted notes are represented with negative durations!!
+    else if (divider < 0) { //Dotted note = negative duration, for simplicity
       noteDuration = (wholenote) / abs(divider);
-      noteDuration *= 1.5; // increases the duration in half for dotted notes
+      noteDuration *= 1.5; //Dotted note = 1.5 time duration
     }
-
-    // we only play the note for 90% of the duration, leaving 10% as a pause
-    tone(pin, victory[thisNote], noteDuration * 0.9);
-
-    // Wait for the specief duration before playing the next note.
+    tone(pin, FFvictory[thisNote], noteDuration * 0.9); //Only play 90% of note to distinguish notes better
     delay(noteDuration);
-
-    // stop the waveform generation before the next note.
     noTone(pin);
   }
+  delay(800); //Delay for 800ms to correspond with sensor readings
 }
