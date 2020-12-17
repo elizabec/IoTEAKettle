@@ -1,16 +1,8 @@
 #include <Helper.h>
 
-
 OneWire tempSensor(2); //Sensor pin = 2
 WiFiClient wifi;
 PubSubClient client(wifi);
-
-char *dtostrf (double value, signed char width, unsigned char prec, char *sout) {
-  char sBuf[20];
-  sprintf(sBuf, "%%%d.%df", width, prec);
-  sprintf(sout, sBuf, value);
-  return sout;
-}
 
 float readTemp() {
   byte data[9];
