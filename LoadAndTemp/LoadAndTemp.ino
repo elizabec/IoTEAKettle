@@ -1,69 +1,14 @@
-#include <Wire.h>
-#include <OneWire.h>
-#include <Notes.h>
-#include <WiFiNINA.h> //library to enable use of WiFi
-#include <SPI.h>
-#include <PubSubClient.h> //library to enable use of MQTT
-#include <arduino_secrets.h>
-#include <stdlib.h>
 #include <Helper.h>
 
-#define addFX29 0x28
-#define MAXLEN 10
-#define TEMP_ERROR 999.999
-#define EMPTYKETTLE 1350
-#define MINWATER 1550
 
 OneWire tempSensor(2); //Sensor pin = 2
 WiFiClient wifi;
 PubSubClient client(wifi);
 
-char mqtt_broker[] = "broker.emqx.io";
-char mqtt_client[] = "mqttjs_13cc164d";
-const int mqtt_port = 1883;
-float values[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-float temp = 0;
-float setTemp = 60;
-byte pos = 0;
-int ledGreen = 3;
-int ledYellow = 4;
-int ledRed = 5;
-int buzzer = 11;
-int tempo = 100;
-int arrlen = 62;
-int status = WL_IDLE_STATUS;
-char ssid[] = SECRET_SSID;
-char pass[] = SECRET_PASS;
-char sendTemp[15];
-char sendP[10];
-char buf[10];
-char tuneBuf[10];
-
-
-int victory[] = { C5, 12, C5, 12, C5, 12, C5, 4, GS4, 4, AS4, 4, C5, 12, REST, 12, AS4, 12, C5, -2 };
-
-int songoftime[] = { A4, 4, D4, 2, F4, 4, A4, 4, D4, 2,
-                    F4, 4, A4, 8, C5, 8, NOTE_B4, 4, G4, 4, F4, 8, G4, 8, A4, 4,
-                    D4, 4, C4, 8, E4, 8, D4, -1
-};
-
-int mario[] = { E5, 8, E5, 8, REST, 8, E5, 8, REST, 8, C5, 8, E5, 8, 
-               G5, 4, REST, 4, G4, 8, REST, 4,
-               C5, -4, G4, 8, REST, 4, E4, -4, 
-               A4, 4, NOTE_B4, 4, AS4, 8, A4, 4,
-               G4, -8, E5, -8, G5, -8, A5, 4, F5, 8, G5, 8,
-               REST, 8, E5, 4, C5, 8, D5, 8, NOTE_B4, -4
-};
-
-int deftune[] = {A4, 16, NOTE_B4, 16, D5, 16, NOTE_B4, 16, FS5, -8, FS5, -8, E5, -4,
-                 A4, 16, NOTE_B4, 16, D5, 16, NOTE_B4, 16, E5, -8, E5, -8, D5, -8, CS5, 16, NOTE_B4, -8,
-                 A4, 16, NOTE_B4, 16, D5, 16, NOTE_B4, 16, D5, 4, E5, 8, CS5, -8, NOTE_B4, 16, A4 , 8, A4, 8, A4, 8,
-                 E5, 4, D5, 2};
-
-char *dtostrf (double val, signed char width, unsigned char prec, char *sout) {
-  char fmt[20];
-  sprintf(fmt, "%%%d.%df", width, prec);
-  sprintf(sout, fmt, val);
+char *dtostrf (double value, signed char width, unsigned char prec, char *sout) {
+  char sBuf[20];
+  sprintf(sBuf, "%%%d.%df", width, prec);
+  sprintf(sout, sBuf, value);
   return sout;
 }
 
@@ -99,7 +44,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message: ");
   for (int i = 0; i < length; i ++)
   {
-    Serial.print(char(payload[i]));
+    Serial.print(char(payload[i])); //TODO: topic determines which value should be used (temp vs song)
     buf[i] = payload[i];
 
   }
@@ -165,7 +110,7 @@ void loop() {
   int nBytes = 4;
   long bytesRead[nBytes];
 
-  Wire.requestFrom(addFX29, nBytes);
+  Wire.requestFrom(addFX29, nBytes); //Request 4 bytes of data from device
 
   int index = 0;
   while (Wire.available()) {
@@ -181,8 +126,10 @@ void loop() {
     Pvalue = (bytesRead[0] << 8) | bytesRead[1];
     I2C_ERR = 0; //All is well
   }
+  
   else
     I2C_ERR = 1; //All is not well
+    
   if (I2C_ERR == 0) {
     Pspan = P2 - P1; //Span of values
     Pdisplay = (Pvalue - 1000) * 50 / Pspan; //Percentage
@@ -190,6 +137,7 @@ void loop() {
     if (Pdisplay >= 0 && Pdisplay <= 100) {
       values[pos] = Pdisplay;
       pos++;
+      
       if (pos == MAXLEN) { //Running array of values
         pos = 0;
       }
@@ -198,37 +146,44 @@ void loop() {
   Wire.endTransmission();
 
   temp = readTemp();
-  dtostrf(temp, 4, 1, sendTemp);
+  itoa(temp, sendTemp, 10);
   sprintf(sendP, "%d", Pvalue);
   setTemp = atof(buf);
 
+  Serial.print("Send Temp = ");
+  Serial.println(sendTemp);
   client.publish("Kettle/Temperature", sendTemp);
   client.publish("Kettle/Weight", sendP);
 
-
   if (setTemp > temp) {
+    
     if(Pvalue > MINWATER){
     //digitalWrite(kettle, HIGH);
     client.publish("Kettle/State", "1");
     }
+    
     else{
       digitalWrite(ledRed, HIGH);
       client.publish("Kettle/State", "0");
     }
   }
+  
   if (temp >= setTemp) {
     //digitalWrite(kettle, LOW);
     client.publish("Kettle/State", "0");
     digitalWrite(ledGreen, HIGH);
     //playTune(0);
   }
+  
   else {
     digitalWrite(ledGreen, LOW);
     noTone(buzzer);
   }
+  
   if (Pvalue >= EMPTYKETTLE) {
     digitalWrite(ledYellow, HIGH);
   }
+  
   else {
     digitalWrite(ledYellow, LOW);
   }
@@ -236,17 +191,18 @@ void loop() {
   Serial.print("Temperature =  ");
   Serial.print(temp, 1);
   Serial.print("  Pvalue = ");
+  
   if (I2C_ERR == 0) {
-    digitalWrite(ledRed, HIGH);
     Serial.println(Pvalue);
   }
+  
   else if (I2C_ERR == 1) {
-    digitalWrite(ledRed, LOW);
     Serial.println("Error!");
   }
 }
 
 void playTune(int choice) {
+  
   int tune[arrlen];
   
   if (choice == 1) {
@@ -254,28 +210,27 @@ void playTune(int choice) {
       tune[i] = victory[i];
     }
     tempo = 115;
- 
   }
+  
   else if (choice == 2) {
     for(int i = 0; i < arrlen; i++){
       tune[i] = songoftime[i];
     }
     tempo = 108;
-
   }
+  
   else if (choice == 3) {
     for(int i = 0; i < arrlen; i++){
       tune[i] = mario[i];
     }
     tempo = 200;
-
   }
+  
   else {
     for(int i = 0; i < arrlen; i++){
       tune[i] = deftune[i];
     }
     tempo = 115;
- 
   }
 
   int notes = sizeof(tune) / sizeof(tune[0]) / 2;
