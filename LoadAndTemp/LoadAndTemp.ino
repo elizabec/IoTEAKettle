@@ -141,6 +141,9 @@ void loop() {
   itoa(temp, sendTemp, 10);
   sprintf(sendP, "%d", Pvalue);
   setTemp = atof(buf);
+  if(setTemp < 25){
+    setTemp = 25;
+  }
 
   Serial.print("Send Temp = ");
   Serial.println(sendTemp);
@@ -182,6 +185,8 @@ void loop() {
   // Values for debugging
   Serial.print("Temperature =  ");
   Serial.print(temp, 1);
+  Serial.print("  Set Temperature = ");
+  Serial.print(setTemp);
   Serial.print("  Pvalue = ");
   
   if (I2C_ERR == 0) {
