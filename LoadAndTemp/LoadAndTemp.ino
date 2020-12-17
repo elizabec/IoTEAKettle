@@ -4,6 +4,7 @@ OneWire tempSensor(2); //Sensor pin = 2
 WiFiClient wifi;
 PubSubClient client(wifi);
 
+
 float readTemp() {
   byte data[9];
   int temperature;
@@ -34,14 +35,24 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.println(topic);
 
   Serial.print("Message: ");
-  for (int i = 0; i < length; i ++)
+  for (int i = 0; i < length; i++)
   {
     Serial.print(char(payload[i])); //TODO: topic determines which value should be used (temp vs song)
-    buf[i] = payload[i];
+    if (strncmp(topic, "Kettle/HeatTemp", 15) == 0) {
+      buf[i] = payload[i];
+    }
+    else if (strncmp(topic, "Kettle/Song", 11) == 0) {
+      tuneBuf[i] = payload[i];
+    }
 
   }
+  Serial.print("Buf = ");
+  Serial.println(buf);
+  Serial.print("tuneBuf = ");
+  Serial.println(tuneBuf);
   Serial.println();
 }
+
 void printCurrentNet() {
   Serial.print("SSID: ");
   Serial.println(WiFi.SSID());
@@ -70,7 +81,7 @@ void connSetup() {
   client.setCallback(callback);
   while (!client.connected()) {
     Serial.println("Connecting to MQTT....");
-    if (client.connect(mqtt_client, NULL, NULL, "Kettle/connected", 2, true, "false")) {
+    if (client.connect(mqtt_client, NULL, NULL, "Kettle/Connected", 2, true, "0")) {
       Serial.println("MQTT Connected!");
     }
     else {
@@ -79,8 +90,9 @@ void connSetup() {
       delay(2000);
     }
   }
-  client.publish("Kettle/connected", "true");
+  client.publish("Kettle/Connected", "1");
   client.subscribe("Kettle/HeatTemp");
+  client.subscribe("Kettle/Song");
 }
 
 void setup() {
@@ -118,10 +130,10 @@ void loop() {
     Pvalue = (bytesRead[0] << 8) | bytesRead[1];
     I2C_ERR = 0; //All is well
   }
-  
+
   else
     I2C_ERR = 1; //All is not well
-    
+
   if (I2C_ERR == 0) {
     Pspan = P2 - P1; //Span of values
     Pdisplay = (Pvalue - 1000) * 50 / Pspan; //Percentage
@@ -129,7 +141,7 @@ void loop() {
     if (Pdisplay >= 0 && Pdisplay <= 100) {
       values[pos] = Pdisplay;
       pos++;
-      
+
       if (pos == MAXLEN) { //Running array of values
         pos = 0;
       }
@@ -141,90 +153,101 @@ void loop() {
   itoa(temp, sendTemp, 10);
   sprintf(sendP, "%d", Pvalue);
   setTemp = atof(buf);
-  if(setTemp < 25){
-    setTemp = 25;
+  choice = atoi(tuneBuf);
+
+  client.publish("Kettle/Temperature", sendTemp);
+  if (counter >= 30) {
+    client.publish("Kettle/Weight", sendP);
+    counter = 0;
   }
 
-  Serial.print("Send Temp = ");
-  Serial.println(sendTemp);
-  client.publish("Kettle/Temperature", sendTemp);
-  client.publish("Kettle/Weight", sendP);
-
   if (setTemp > temp) {
-    
-    if(Pvalue > MINWATER){
-    //digitalWrite(kettle, HIGH);
-    client.publish("Kettle/State", "1");
+
+    if (Pvalue > MINWATER) {
+      //digitalWrite(kettle, HIGH);
+      digitalWrite(ledRed, LOW);
+      play = true;
+      client.publish("Kettle/State", "1");
     }
-    
-    else{
+
+    else {
       digitalWrite(ledRed, HIGH);
+      play = false;
       client.publish("Kettle/State", "0");
     }
   }
-  
+
   if (temp >= setTemp) {
     //digitalWrite(kettle, LOW);
     client.publish("Kettle/State", "0");
     digitalWrite(ledGreen, HIGH);
-    //playTune(0);
+
+    if (play == true) {
+      playTune(choice);
+      play = false;
+    }
+    else {
+      noTone(buzzer);
+    }
   }
-  
-  else {
+
+  else if(temp < setTemp){
     digitalWrite(ledGreen, LOW);
     noTone(buzzer);
   }
-  
+
   if (Pvalue >= EMPTYKETTLE) {
     digitalWrite(ledYellow, HIGH);
   }
-  
-  else {
+
+  else if(Pvalue < EMPTYKETTLE) {
     digitalWrite(ledYellow, LOW);
   }
+
   // Values for debugging
   Serial.print("Temperature =  ");
   Serial.print(temp, 1);
   Serial.print("  Set Temperature = ");
   Serial.print(setTemp);
   Serial.print("  Pvalue = ");
-  
+
   if (I2C_ERR == 0) {
     Serial.println(Pvalue);
   }
-  
+
   else if (I2C_ERR == 1) {
     Serial.println("Error!");
   }
+  counter++;
 }
 
-void playTune(int choice) {
-  
+void playTune(int c) {
+
   int tune[arrlen];
-  
-  if (choice == 1) {
-    for(int i = 0; i < arrlen; i++){
+
+  if (c == 1) {
+    for (int i = 0; i < arrlen; i++) {
       tune[i] = victory[i];
     }
     tempo = 115;
   }
-  
-  else if (choice == 2) {
-    for(int i = 0; i < arrlen; i++){
+
+  else if (c == 2) {
+    for (int i = 0; i < arrlen; i++) {
       tune[i] = songoftime[i];
     }
     tempo = 108;
   }
-  
-  else if (choice == 3) {
-    for(int i = 0; i < arrlen; i++){
+
+  else if (c == 3) {
+    for (int i = 0; i < arrlen; i++) {
       tune[i] = mario[i];
     }
     tempo = 200;
   }
-  
+
   else {
-    for(int i = 0; i < arrlen; i++){
+    for (int i = 0; i < arrlen; i++) {
       tune[i] = deftune[i];
     }
     tempo = 115;
