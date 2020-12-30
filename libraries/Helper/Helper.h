@@ -39,6 +39,7 @@ int ledGreen = 3;
 int ledYellow = 4;
 int ledRed = 5;
 int buzzer = 11;
+int kettle = 8;
 int tempo = 100;
 int arrlen = 61;
 int counter = 0;
